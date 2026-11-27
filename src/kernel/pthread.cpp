@@ -3261,6 +3261,22 @@ int KYTY_SYSV_ABI PthreadCreate(Pthread* thread, const PthreadAttr* attr,
 		created_thread->unique_id       = -1;
 		created_thread->state           = PthreadState::Running;
 
+		// Diagnostics, off unless KYTY_LOG_THREADS=1: one line per guest thread, to match a fault's
+		// stack to the thread that owns it.
+		static const bool log_threads = [] {
+			const char* value = std::getenv("KYTY_LOG_THREADS");
+			return value != nullptr && value[0] == '1';
+		}();
+		if (log_threads) {
+			std::printf("Thread create: id=%d name='%s' entry=%016" PRIx64 " arg=%016" PRIx64
+			            " stack=%016" PRIx64 "+%" PRIx64 "\n",
+			            created_thread->guest.thread_id, created_thread->name.c_str(),
+			            reinterpret_cast<uint64_t>(entry), reinterpret_cast<uint64_t>(arg),
+			            reinterpret_cast<uint64_t>(created_thread->attr->stack_addr),
+			            static_cast<uint64_t>(created_thread->attr->stack_size));
+			std::fflush(stdout);
+		}
+
 		result =
 		    pthread_create(&created_thread->p, &created_thread->attr->p, RunThread, created_thread);
 

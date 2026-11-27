@@ -16,8 +16,10 @@
 #elif defined(__APPLE__)
 #include <sched.h>
 #include <sys/ucontext.h>
+#include <time.h>
 #else
 #include <sched.h>
+#include <time.h>
 #include <ucontext.h>
 #endif
 
@@ -748,12 +750,14 @@ static bool TryEmulateMonitorxMwaitx(Context& context) {
 		return false;
 	}
 
-	// Approximate AMD MONITORX/MWAITX as no-op/yield.
+	// Approximate AMD MONITORX/MWAITX as no-op/short sleep. A yield alone keeps a guest spin-wait
+	// (GTA VI waits on GPU-written memory this way) at 100% of a host core through the trap path.
 	if (rip[2] == 0xfb) {
 #if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 		SwitchToThread();
 #else
-		::sched_yield();
+		const timespec nap {0, 20'000};
+		::nanosleep(&nap, nullptr);
 #endif
 	}
 	LogFirstTrap(context, rip[2] == 0xfb ? ZYDIS_MNEMONIC_MWAITX : ZYDIS_MNEMONIC_MONITORX);

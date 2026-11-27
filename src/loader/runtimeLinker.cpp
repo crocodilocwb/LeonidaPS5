@@ -686,13 +686,45 @@ bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exception_
 			}
 			std::printf("\n");
 		}
-		if (IsReadableRange(info->rsp, 32 * sizeof(uint64_t))) {
+		// Dump only the readable part of the stack: a shallow thread stack ends right before
+		// the next guard page, and probing the whole range would reject everything.
+		int stack_qwords = 0;
+		while (stack_qwords < 32 &&
+		       IsReadableRange(info->rsp + stack_qwords * sizeof(uint64_t), sizeof(uint64_t))) {
+			stack_qwords++;
+		}
+		if (stack_qwords > 0) {
 			const auto* stack = reinterpret_cast<const uint64_t*>(info->rsp);
-			std::printf("stack:");
-			for (int i = 0; i < 32; i++) {
+			std::printf("stack (%d qwords):", stack_qwords);
+			for (int i = 0; i < stack_qwords; i++) {
 				std::printf("%s %016" PRIx64, (i % 4 == 0) ? "\n " : "", stack[i]);
 			}
 			std::printf("\n");
+		}
+		// Return addresses: [rsp] (caller of a leaf without frame) + the rbp chain, each with
+		// the code bytes around it (48 before, 16 after) to disassemble the call sites offline.
+		{
+			const uint64_t code_start = SYSTEM_RESERVED + CODE_BASE_OFFSET;
+			void*          frames[17] {};
+			int            count = 0;
+			if (stack_qwords > 0) {
+				frames[count++] =
+				    reinterpret_cast<void*>(*reinterpret_cast<const uint64_t*>(info->rsp));
+			}
+			count += WalkGuestStack(info->rbp, info->rsp, frames + count, 16);
+			for (int f = 0; f < count; f++) {
+				const auto ret = reinterpret_cast<uint64_t>(frames[f]);
+				std::printf("ret[%d]=%016" PRIx64 " (0x900000000+0x%" PRIx64 ")%s", f, ret,
+				            ret - code_start,
+			            (f == 0 && stack_qwords > 0) ? " [rsp]" : " [rbp chain]");
+				if (ret >= code_start && IsReadableRange(ret - 48, 64)) {
+					const auto* code = reinterpret_cast<const uint8_t*>(ret - 48);
+					for (int i = 0; i < 64; i++) {
+						std::printf("%s%02x", (i % 16 == 0) ? "\n " : " ", code[i]);
+					}
+				}
+				std::printf("\n");
+			}
 		}
 		std::fflush(stdout);
 	}

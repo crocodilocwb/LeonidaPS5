@@ -343,6 +343,30 @@ add_custom_command(
 list(APPEND kyty_emulator_src "${fault_buffer_shader_header}")
 list(APPEND kyty_emulator_src ${gpu_tiler_shader_headers})
 
+# The shader store is keyed on what decides its contents (the recompiler and the pipeline cache),
+# not on the executable, so rebuilds that touch neither keep the stored shaders.
+file(GLOB_RECURSE shader_store_inputs CONFIGURE_DEPENDS
+	"${KYTY_SOURCE_DIR}/graphics/shader/*.cpp"
+	"${KYTY_SOURCE_DIR}/graphics/shader/*.h"
+	"${KYTY_SOURCE_DIR}/graphics/shader/*.inc"
+)
+list(APPEND shader_store_inputs
+	"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/pipeline/pipelineCache.h"
+	"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp"
+	"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/pipeline/pipelineSerialization.cpp"
+)
+list(JOIN shader_store_inputs "\n" shader_store_inputs_text)
+file(WRITE "${PROJECT_BINARY_DIR}/shader_store_inputs.txt" "${shader_store_inputs_text}\n")
+set(shader_store_stamp_header "${PROJECT_BINARY_DIR}/shader_store_stamp.h")
+add_custom_target(KytyShaderStoreStamp
+	COMMAND ${CMAKE_COMMAND} -D INPUTS=${PROJECT_BINARY_DIR}/shader_store_inputs.txt
+		-D OUTPUT=${shader_store_stamp_header} -D ROOT=${KYTY_SOURCE_DIR}
+		-P ${KYTY_SOURCE_DIR}/shader_store_stamp.cmake
+	BYPRODUCTS ${shader_store_stamp_header}
+	COMMENT "Generate shader_store_stamp.h"
+)
+list(APPEND kyty_emulator_src "${shader_store_stamp_header}")
+
 set(gpu_blit_generated_dir "${PROJECT_BINARY_DIR}/gpu_blit_shaders")
 function(add_gpu_blit_shader shader_name shader_file)
 	set(shader_source "${gpu_tiler_shader_dir}/${shader_file}")

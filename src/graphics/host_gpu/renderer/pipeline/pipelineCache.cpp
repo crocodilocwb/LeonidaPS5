@@ -131,6 +131,18 @@ void DumpShader(std::span<const uint32_t> words, const std::string& name) {
 	file.Write(words.data(), words.size_bytes());
 }
 
+// GTA VI diagnostics: the guest code of every program the host skips, for offline disassembly
+// (llvm-mc --arch=amdgcn --mcpu=gfx1030 --disassemble). Written once per program, in any build.
+void DumpFailedShader(std::span<const uint32_t> words, const char* stage, uint64_t hash) {
+	const auto path = std::filesystem::path("_Shaders") / "failed" /
+	                  fmt::format("{}_{:016x}.bin", stage, hash);
+	Common::File::CreateDirectories(path.parent_path());
+	Common::File file(path);
+	if (!file.IsInvalid()) {
+		file.Write(words.data(), words.size_bytes());
+	}
+}
+
 void ValidateShaderSpirv(const char* stage, uint64_t shader_hash,
                          const std::vector<uint32_t>& spirv, bool maintenance8_enabled) {
 	if (!Config::ShaderValidationEnabled()) {
@@ -357,6 +369,7 @@ const ShaderModule* PipelineCache::GetProgram(const ShaderParams& params, InputI
 			PipelineCacheLog("!!! TEMPORARY COMPUTE DISPATCH SKIP !!! shader=0x{:016x} pc=0x{:08x} "
 			                 "reason=unsupported GPU-selected callable target; rendering is incomplete",
 			                 params.hash, source.unsupported_call_pc);
+			DumpFailedShader(params.code, ShaderRecompiler::StageName(options.stage), params.hash);
 			m_program_cache.emplace(m_lookup_key, Program {.skip_dispatch = true});
 			return nullptr;
 		}
@@ -382,6 +395,7 @@ const ShaderModule* PipelineCache::GetProgram(const ShaderParams& params, InputI
 		tracking_failed = true;
 	}
 	if (tracking_failed) {
+		DumpFailedShader(params.code, ShaderRecompiler::StageName(options.stage), params.hash);
 		if (entry == m_program_cache.end()) {
 			m_program_cache.emplace(m_lookup_key, Program {.skip_dispatch = true});
 		} else {
@@ -403,6 +417,7 @@ const ShaderModule* PipelineCache::GetProgram(const ShaderParams& params, InputI
 			PipelineCacheLog("!!! SHADER DISPATCH SKIP (resource materialization failed) "
 			                 "shader=0x{:016x}; rendering is incomplete",
 			                 params.hash);
+			DumpFailedShader(params.code, ShaderRecompiler::StageName(options.stage), params.hash);
 			program.skip_dispatch = true;
 			return nullptr;
 		}
@@ -817,7 +832,13 @@ void PipelineCache::GetGraphicsPrograms(const CommandBuffer& command, DrawRender
 	auto push_data = ShaderRecompiler::IR::PushData::GraphicsWindow(
 	    mesh_active, object_primitive_id, last_stage.user_clip_planes);
 	if (pixel_active) {
-		const auto& pixel_module = *GetProgram(pixel_params, pixel_info, push_data);
+		const auto* pixel_program = GetProgram(pixel_params, pixel_info, push_data);
+		// A pixel program the host cannot run drops the draw: returning before the vertex
+		// program leaves vertex_info[0].stage.module null, which the caller skips.
+		if (pixel_program == nullptr) {
+			return;
+		}
+		const auto& pixel_module = *pixel_program;
 		for (const auto& output: pixel_module.info.info.outputs) {
 			if (output.kind == ShaderRecompiler::IR::StageOutputKind::Mrt ||
 			    output.kind == ShaderRecompiler::IR::StageOutputKind::ObjectPrimitiveId) {

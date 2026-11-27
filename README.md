@@ -20,7 +20,13 @@ This repository contains only the emulator's source code.
 | ------------------------ | --------------------------------------------------- |
 | Boot and loading         | Works                                               |
 | Main menu                | Reached, interactive                                |
-| After the main menu      | Crashes (the game's own fatal assert is triggered)  |
+| After the main menu      | Loads into the world: the night sky and city lights render, most of the scene does not |
+
+The first boot compiles every shader as the game asks for it, which makes loading very slow. The
+game has a watchdog that terminates it when it stops responding for about 30 seconds, so it has to
+be disabled with a `--game-patch` file (not included in this repository). Run with
+`--shader-cache` so the compiled shaders and pipelines are kept and rebuilt in parallel on the next
+boot.
 
 Tested on Linux with an NVIDIA RTX 3060 (Vulkan 1.4).
 
@@ -36,8 +42,16 @@ Based on KytyPS5 commit
 - **Large descriptor tables:** scalar descriptor tables with up to 262,144 rows are scanned on the
   host, and the scan results are cached while the table contents stay the same.
 - **Unknown shader patterns:** a shader whose resources cannot be tracked or materialized is
-  skipped (logged as `SHADER DISPATCH SKIP`) instead of terminating the emulator. Rendering may be
-  incomplete when this happens.
+  skipped (logged as `SHADER DISPATCH SKIP`) instead of terminating the emulator. For a pixel
+  shader, only that draw is dropped. Rendering may be incomplete when this happens.
+- **Shader cache across rebuilds:** the `--shader-cache` store is keyed on a hash of the shader
+  recompiler and pipeline cache sources, generated at build time, instead of the executable's
+  timestamp. Rebuilds that do not touch those sources keep the stored shaders.
+- **MONITORX/MWAITX:** the trapped `mwaitx` sleeps for 20 µs instead of yielding, so a guest
+  spin-wait no longer keeps a host core fully busy.
+- **Diagnostics:** the fatal fault report prints the readable part of the guest stack and the
+  return addresses with the code around them; every skipped shader's guest code is written to
+  `_Shaders/failed/`; `KYTY_LOG_THREADS=1` logs each guest thread's creation.
 - **Oversized storage buffers:** buffers larger than the GPU's `maxStorageBufferRange` are clamped
   instead of terminating the emulator.
 - **Repository:** the upstream CI/release workflows and issue templates were removed.
@@ -66,7 +80,7 @@ Only the Linux command-line build (`kyty_emulator`, no Qt launcher) is tested.
 not supported; extracting the package is up to you.
 
 ```bash
-_Build/linux-no-qt/kyty_emulator --game /path/to/PPSA38500
+_Build/linux-no-qt/kyty_emulator --game /path/to/PPSA38500 --shader-cache --game-patch /path/to/patch.json
 ```
 
 Default keyboard controls:
@@ -97,11 +111,15 @@ The files below were modified from KytyPS5 for LeonidaPS5 on 2026-11-26:
 - `.gitignore`
 - `src/graphics/host_gpu/renderer/pipeline/descriptors.cpp`
 - `src/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp`
+- `src/graphics/host_gpu/renderer/pipeline/pipelineSerialization.cpp`
 - `src/graphics/presentation/videoOut.cpp`, `videoOut.h`
 - `src/graphics/shader/recompiler/ir/ShaderIR.h`
 - `src/graphics/shader/recompiler/ir/passes/ResourceMaterialization.cpp`
 - `src/graphics/shader/recompiler/ir/passes/ResourceTracking.cpp`
+- `src/kernel/pthread.cpp`
 - `src/libs/agc.cpp`, `agc.h`, `libAgcDriver.cpp`, `libAmpr.cpp`, `libVideoOut.cpp`
+- `src/loader/runtimeLinker.cpp`, `x64InstructionEmulator.cpp`
+- `src/shader_store_stamp.cmake` (new)
 
 KytyPS5 is based on the original [Kyty](https://github.com/InoriRus/Kyty), which was released
 under the MIT License. Kyty's original copyright and license notice are preserved in
