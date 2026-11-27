@@ -1,0 +1,38 @@
+# Visual Studio 2015 cache/options directory
+.vs/
+.idea/
+build/
+_Build/vscode-clang/
+_Build/
+cmake-build-debug/
+CMakeUserPresets.json
+
+# ---------------------------------------------------------------------------
+# Runtime data written by the emulator (per-game, never commit)
+# ---------------------------------------------------------------------------
+_PipelineCache/
+_SaveData/
+_TempData/
+_DownloadData/
+_Trophies/
+_Shaders/
+_Buffers/
+_kyty.txt
+*.rdc
+
+# Run logs / background launches
+nohup.out
+*.log
+
+# ---------------------------------------------------------------------------
+# Game content / dumps (copyrighted, never commit)
+# ---------------------------------------------------------------------------
+*.pkg
+*.zar
+*.rpf
+eboot.bin
+sce_sys/
+sce_module/
+/PPSA*/
+/CUSA*/
+/NPXS*/
